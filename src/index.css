@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-wine-900: #3b0712;
+  --color-wine-800: #580c1f;
+  --color-wine-700: #720927;
+  --color-wine-600: #881337;
+  --color-wine-500: #9f1239;
+  --color-wine-400: #be123c;
+  --color-wine-light: #e11d48;
+
+  --color-black-pure: #000000;
+  --color-black-card: #0d0d0d;
+  --color-black-border: #222222;
+  --color-black-hover: #1a1a1a;
+
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background-color: #000000;
+  color: #ffffff;
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+::-webkit-scrollbar-thumb {
+  background: #222222;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #720927;
+}
+
+/* QR Code Reader styling custom overrides to fit minimalist black & wine theme */
+#reader {
+  border: none !important;
+  background: #000000 !important;
+}
+
+#reader video {
+  border-radius: 0.75rem;
+  object-fit: cover;
+  border: 1px solid #720927;
+}
+
+#reader__dashboard {
+  background: #0d0d0d !important;
+  color: #ffffff !important;
+  padding: 12px !important;
+  border-radius: 0.5rem;
+  border: 1px solid #222222 !important;
+}
+
+#reader__dashboard button {
+  background-color: #720927 !important;
+  color: #ffffff !important;
+  border: none !important;
+  padding: 8px 16px !important;
+  border-radius: 0.375rem !important;
+  cursor: pointer !important;
+  font-weight: 500 !important;
+  transition: background-color 0.2s ease !important;
+}
+
+#reader__dashboard button:hover {
+  background-color: #881337 !important;
+}
