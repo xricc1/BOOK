@@ -24,7 +24,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-3 py-4 sm:px-4 sm:py-8">
         <AnimatePresence mode="wait">
           {activeTab === 'scan' ? (
             <motion.div
