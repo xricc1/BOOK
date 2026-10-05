@@ -394,7 +394,7 @@ export function ScannerTab({ onBookSaved }) {
               >
                 {saveSuccess ? (
                   <>
-                    <BookmarkCheck size={18} className="text-emerald-400 animate-bounce" />
+                    <BookmarkCheck size={18} className="text-white animate-bounce" />
                     <span>Uloženo do knihovny!</span>
                   </>
                 ) : (
