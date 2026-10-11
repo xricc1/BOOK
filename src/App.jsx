@@ -34,7 +34,10 @@ export default function App() {
               exit={{ opacity: 0, x: 20 }}
               transition={{ duration: 0.2 }}
             >
-              <ScannerTab onBookSaved={handleBookSaved} />
+              <ScannerTab
+                onBookSaved={handleBookSaved}
+                onSwitchToLibrary={() => setActiveTab('library')}
+              />
             </motion.div>
           ) : (
             <motion.div
