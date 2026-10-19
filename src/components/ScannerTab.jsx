@@ -129,6 +129,8 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     let stopLoop = null;
     let stream = null;
     let lastRejectTip = 0;
+    // The <video> is rendered while the camera is active, so the ref is set here
+    const videoEl = videoRef.current;
 
     const start = async () => {
       try {
@@ -140,7 +142,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
         stream = cam.stream;
         trackRef.current = cam.track;
 
-        const video = videoRef.current;
+        const video = videoEl;
         if (!video) return;
         video.srcObject = stream;
         await video.play().catch(() => {});
@@ -198,7 +200,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
       stopTipRotation();
       stopStream(stream);
       trackRef.current = null;
-      if (videoRef.current) videoRef.current.srcObject = null;
+      if (videoEl) videoEl.srcObject = null;
       setTorchSupported(false);
       setTorchOn(false);
       setZoomSupported(false);

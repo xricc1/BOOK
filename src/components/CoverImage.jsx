@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BookOpen } from 'lucide-react';
 
 /**
@@ -6,12 +6,9 @@ import { BookOpen } from 'lucide-react';
  * Shows the placeholder when there is no URL or when the image fails to load.
  */
 export function CoverImage({ src, alt, iconSize = 24, label, className = '' }) {
-  const [failed, setFailed] = useState(false);
-
-  // Reset the error state when a different cover is shown
-  useEffect(() => {
-    setFailed(false);
-  }, [src]);
+  // Remember which URL failed, so a new cover is tried again automatically
+  const [failedSrc, setFailedSrc] = useState(null);
+  const failed = failedSrc !== null && failedSrc === src;
 
   if (!src || failed) {
     return (
@@ -29,7 +26,7 @@ export function CoverImage({ src, alt, iconSize = 24, label, className = '' }) {
       src={src}
       alt={alt}
       className={`w-full h-full object-cover ${className}`}
-      onError={() => setFailed(true)}
+      onError={() => setFailedSrc(src)}
     />
   );
 }
