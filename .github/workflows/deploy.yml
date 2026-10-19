@@ -35,6 +35,10 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # Optional: Google Books API key (repo secret). Without it Google
+          # lookups share a tiny anonymous quota and usually fail.
+          VITE_GOOGLE_BOOKS_API_KEY: ${{ secrets.GOOGLE_BOOKS_API_KEY }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

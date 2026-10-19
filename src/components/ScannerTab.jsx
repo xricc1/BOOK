@@ -5,7 +5,7 @@ import {
   BookOpen, BookmarkCheck, Upload, Zap, ZapOff, ZoomIn, Info, ExternalLink
 } from 'lucide-react';
 import {
-  fetchBookByIsbn, cleanIsbn, isValidIsbn, isBookBarcode, findSavedBookByIsbn, SAMPLE_BOOKS
+  fetchBookByIsbn, cleanIsbn, isValidIsbn, isBookBarcode, normalizeIsbn, findSavedBookByIsbn, SAMPLE_BOOKS
 } from '../services/isbnService';
 import { CoverImage } from './CoverImage';
 import {
@@ -18,6 +18,8 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
   const [isbnInput, setIsbnInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [notFoundIsbn, setNotFoundIsbn] = useState(null);
+  const [searchingIn, setSearchingIn] = useState('');
   const [scannedBook, setScannedBook] = useState(null);
   const [existingDuplicate, setExistingDuplicate] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -45,6 +47,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     const targetIsbn = cleanIsbn(rawTarget);
 
     if (!targetIsbn) return;
+    setNotFoundIsbn(null);
 
     if (options.fromScan && !isBookBarcode(targetIsbn)) {
       setError(NOT_A_BOOK_MESSAGE);
@@ -75,11 +78,12 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     }
 
     try {
-      const book = await fetchBookByIsbn(targetIsbn, options);
+      const book = await fetchBookByIsbn(targetIsbn, { ...options, onProgress: setSearchingIn });
       setScannedBook(book);
       setEditForm(book);
     } catch (err) {
       setError(err.message || 'Knihu se nepodařilo najít v dostupných katalozích.');
+      if (err.code === 'NOT_FOUND') setNotFoundIsbn(normalizeIsbn(targetIsbn));
     } finally {
       setLoading(false);
     }
@@ -234,6 +238,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
 
     setLoading(true);
     setError(null);
+    setNotFoundIsbn(null);
     setScannedBook(null);
     setExistingDuplicate(null);
 
@@ -256,9 +261,39 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     }
   };
 
+  // Book not in any catalog: start an empty record with the ISBN and open the editor
+  const handleAddManually = () => {
+    if (!notFoundIsbn) return;
+    const book = {
+      id: `book-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      isbn: notFoundIsbn,
+      title: '',
+      author: '',
+      genre: '',
+      publishYear: '',
+      pageCount: '',
+      publisher: '',
+      description: '',
+      coverUrl: null,
+      catalogSource: 'Ruční zadání',
+      addedAt: new Date().toISOString(),
+    };
+    setError(null);
+    setNotFoundIsbn(null);
+    setScannedBook(book);
+    setEditForm(book);
+    setIsEditing(true);
+  };
+
   const handleSave = () => {
     if (!scannedBook) return;
     const finalBook = { ...scannedBook, ...editForm };
+    if (!String(finalBook.title || '').trim()) {
+      setIsEditing(true);
+      setError('Vyplň aspoň název knihy, pak ji můžeš uložit.');
+      return;
+    }
+    setError(null);
     onBookSaved(finalBook);
     setSaveSuccess(true);
     setIsEditing(false);
@@ -501,7 +536,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
           >
             <div className="w-10 h-10 border-4 border-wine-900 border-t-wine-500 rounded-full animate-spin" />
             <p className="text-xs sm:text-sm text-zinc-400 font-medium animate-pulse">
-              Vyhledávám v katalozích (Knihovny.cz &bull; Google Books &bull; Open Library)...
+              {searchingIn ? `Hledám v katalogu ${searchingIn}…` : 'Hledám v katalozích…'}
             </p>
           </motion.div>
         )}
@@ -518,6 +553,15 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
           <div className="space-y-1">
             <h4 className="text-sm font-semibold text-white">Chyba při vyhledávání</h4>
             <p className="text-xs text-zinc-300 leading-relaxed">{error}</p>
+            {notFoundIsbn && (
+              <button
+                onClick={handleAddManually}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs bg-wine-700 hover:bg-wine-600 text-white font-medium px-3 py-2 rounded-lg transition cursor-pointer touch-manipulation min-h-[36px]"
+              >
+                <Edit2 size={13} />
+                Přidat knihu ručně (ISBN {notFoundIsbn})
+              </button>
+            )}
           </div>
         </motion.div>
       )}
