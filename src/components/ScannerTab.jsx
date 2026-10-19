@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import {
   Camera, Search, Sparkles, Check, Edit2, AlertCircle, RefreshCw,
   BookOpen, BookmarkCheck, Upload, Zap, ZapOff, ZoomIn, Info, ExternalLink
@@ -9,6 +8,9 @@ import {
   fetchBookByIsbn, cleanIsbn, isValidIsbn, isBookBarcode, findSavedBookByIsbn, SAMPLE_BOOKS
 } from '../services/isbnService';
 import { CoverImage } from './CoverImage';
+import {
+  openCamera, stopStream, startScanLoop, decodeImageFile, GUIDE
+} from '../services/barcodeScanner';
 
 const NOT_A_BOOK_MESSAGE = 'Tento čárový kód nepatří knize. Hledej kód začínající 978 nebo 979, nebo zadej ISBN ručně.';
 
@@ -31,7 +33,9 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
   const [currentZoom, setCurrentZoom] = useState(1);
   const [scanTip, setScanTip] = useState('');
 
-  const html5QrcodeRef = useRef(null);
+  const videoRef = useRef(null);
+  const viewportRef = useRef(null);
+  const trackRef = useRef(null);
   const handleSearchRef = useRef(null);
   const tipTimerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -113,102 +117,84 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     setScanTip('');
   };
 
-  // Camera start & setup
+  // Camera start & scanning loop
   useEffect(() => {
-    if (isCameraActive) {
-      const elementId = "reader";
-      const html5Qrcode = new Html5Qrcode(elementId);
-      html5QrcodeRef.current = html5Qrcode;
-      let handled = false;
+    if (!isCameraActive) return undefined;
 
-      const config = {
-        fps: 15,
-        qrbox: (viewfinderWidth, viewfinderHeight) => {
-          const width = Math.min(viewfinderWidth * 0.9, 360);
-          const height = Math.min(viewfinderHeight * 0.5, 180);
-          return { width: Math.max(width, 220), height: Math.max(height, 120) };
-        },
-        aspectRatio: 1.777778,
-        // Books use EAN-13 barcodes (978/979 prefix)
-        formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13],
-        videoConstraints: {
-          facingMode: { exact: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+    let cancelled = false;
+    let stopLoop = null;
+    let stream = null;
+    let lastRejectTip = 0;
+
+    const start = async () => {
+      try {
+        const cam = await openCamera();
+        if (cancelled) {
+          stopStream(cam.stream);
+          return;
         }
-      };
+        stream = cam.stream;
+        trackRef.current = cam.track;
 
-      const startCameraWithConfig = (cameraConfig) => {
-        html5Qrcode.start(
-          cameraConfig,
-          config,
-          (decodedText) => {
-            // Ignore non-book barcodes and keep scanning
-            if (handled || !isBookBarcode(decodedText)) {
-              if (!handled) setScanTip('Tohle není kód knihy (978/979)');
-              return;
-            }
-            handled = true;
-            stopTipRotation();
-            const finish = () => {
-              html5QrcodeRef.current = null;
-              setIsCameraActive(false);
-              handleSearchRef.current?.(decodedText, { fromScan: true });
-            };
-            html5Qrcode.stop().then(finish).catch(finish);
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        await video.play().catch(() => {});
+
+        const caps = cam.capabilities;
+        setTorchSupported(Boolean(caps.torch));
+        if (caps.zoom) {
+          setZoomSupported(true);
+          setZoomRange({
+            min: caps.zoom.min || 1,
+            max: caps.zoom.max || 5,
+            step: caps.zoom.step || 0.1,
+          });
+          setCurrentZoom(cam.zoom || caps.zoom.min || 1);
+        }
+
+        startTipRotation();
+        stopLoop = startScanLoop(video, {
+          isAccepted: isBookBarcode,
+          getViewSize: () => {
+            const box = viewportRef.current;
+            return box ? { w: box.clientWidth, h: box.clientHeight } : null;
           },
-          () => {
-            // Scan frame pass
-          }
-        ).then(() => {
-          startTipRotation();
-
-          // Check camera capabilities for torch & zoom
-          try {
-            const capabilities = html5Qrcode.getRunningTrackCapabilities();
-            if (capabilities) {
-              if (capabilities.torch) {
-                setTorchSupported(true);
-              }
-              if (capabilities.zoom) {
-                setZoomSupported(true);
-                setZoomRange({
-                  min: capabilities.zoom.min || 1,
-                  max: capabilities.zoom.max || 5,
-                  step: capabilities.zoom.step || 0.1
-                });
-                setCurrentZoom(capabilities.zoom.min || 1);
-              }
+          onReject: () => {
+            // Throttle so the tip stays readable
+            const now = Date.now();
+            if (now - lastRejectTip > 3000) {
+              lastRejectTip = now;
+              setScanTip('Tohle není kód knihy (hledej 978/979)');
             }
-          } catch (capErr) {
-            console.warn('Could not read track capabilities:', capErr);
-          }
-        }).catch((err) => {
-          console.warn('Exact rear camera request failed, falling back to general environment:', err);
-          if (cameraConfig.facingMode?.exact) {
-            startCameraWithConfig({ facingMode: "environment" });
-          } else {
+          },
+          onDetected: (code) => {
+            if (cancelled) return;
+            navigator.vibrate?.(80);
             setIsCameraActive(false);
-            setError('Kameru se nepodařilo spustit. Povol přístup ke kameře, nebo nahraj fotku kódu.');
-          }
+            handleSearchRef.current?.(code, { fromScan: true });
+          },
         });
-      };
-
-      startCameraWithConfig({ facingMode: { exact: "environment" } });
-    } else {
-      stopTipRotation();
-      if (html5QrcodeRef.current) {
-        html5QrcodeRef.current.stop().catch(() => {}).finally(() => {
-          html5QrcodeRef.current = null;
-        });
+      } catch (err) {
+        if (cancelled) return;
+        console.warn('Camera start failed:', err);
+        setIsCameraActive(false);
+        const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
+        setError(denied
+          ? 'Aplikace nemá přístup ke kameře. Povol ho v nastavení prohlížeče, nebo nahraj fotku kódu.'
+          : 'Kameru se nepodařilo spustit. Zkus to znovu, nebo nahraj fotku kódu.');
       }
-    }
+    };
+
+    start();
 
     return () => {
+      cancelled = true;
+      stopLoop?.();
       stopTipRotation();
-      if (html5QrcodeRef.current) {
-        html5QrcodeRef.current.stop().catch(() => {});
-      }
+      stopStream(stream);
+      trackRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
       setTorchSupported(false);
       setTorchOn(false);
       setZoomSupported(false);
@@ -217,12 +203,11 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
 
   // Torch toggle handler
   const toggleTorch = async () => {
-    if (!html5QrcodeRef.current) return;
+    const track = trackRef.current;
+    if (!track) return;
     try {
       const nextState = !torchOn;
-      await html5QrcodeRef.current.applyVideoConstraints({
-        advanced: [{ torch: nextState }]
-      });
+      await track.applyConstraints({ advanced: [{ torch: nextState }] });
       setTorchOn(nextState);
     } catch (err) {
       console.warn('Torch toggle failed:', err);
@@ -233,11 +218,10 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
   const handleZoomChange = async (e) => {
     const zoomVal = parseFloat(e.target.value);
     setCurrentZoom(zoomVal);
-    if (!html5QrcodeRef.current) return;
+    const track = trackRef.current;
+    if (!track) return;
     try {
-      await html5QrcodeRef.current.applyVideoConstraints({
-        advanced: [{ zoom: zoomVal }]
-      });
+      await track.applyConstraints({ advanced: [{ zoom: zoomVal }] });
     } catch (err) {
       console.warn('Zoom change failed:', err);
     }
@@ -253,24 +237,18 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     setScannedBook(null);
     setExistingDuplicate(null);
 
-    const tempContainer = document.createElement('div');
-    tempContainer.id = 'temp-file-reader';
-    tempContainer.style.display = 'none';
-    document.body.appendChild(tempContainer);
-
     try {
-      const html5Qrcode = new Html5Qrcode('temp-file-reader');
-      const decodedText = await html5Qrcode.scanFile(file, true);
-      html5Qrcode.clear();
-      document.body.removeChild(tempContainer);
-
-      await handleSearch(decodedText, { fromScan: true });
-    } catch (err) {
-      if (document.getElementById('temp-file-reader')) {
-        document.body.removeChild(tempContainer);
+      const code = await decodeImageFile(file, isBookBarcode);
+      if (code) {
+        await handleSearch(code, { fromScan: true });
+      } else {
+        setLoading(false);
+        setError('Na fotce se nepodařilo najít čárový kód knihy. Vyfoť kód zblízka, ostře a celý, nebo zadej ISBN ručně.');
       }
+    } catch (err) {
+      console.warn('Photo scan failed:', err);
       setLoading(false);
-      setError('Kód se nepodařilo přečíst. Zkus lepší světlo nebo ruční zadání ISBN.');
+      setError('Fotku se nepodařilo zpracovat. Zkus jinou fotku nebo ruční zadání ISBN.');
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -345,8 +323,35 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
             </div>
 
             {/* Video Viewport Container */}
-            <div className="relative overflow-hidden rounded-xl border border-wine-700/60 bg-black min-h-[240px]">
-              <div id="reader" className="w-full" />
+            <div
+              ref={viewportRef}
+              className="relative overflow-hidden rounded-xl border border-wine-700/60 bg-black aspect-[4/3] w-full"
+            >
+              <video
+                ref={videoRef}
+                className="absolute inset-0 w-full h-full object-cover"
+                autoPlay
+                muted
+                playsInline
+              />
+
+              {/* Aim guide: the scanner reads this area at full camera resolution */}
+              <div className="absolute inset-0 pointer-events-none">
+                <div
+                  className="absolute border-2 border-white/90 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
+                  style={{
+                    left: `${GUIDE.left * 100}%`,
+                    right: `${(1 - GUIDE.right) * 100}%`,
+                    top: `${GUIDE.top * 100}%`,
+                    bottom: `${(1 - GUIDE.bottom) * 100}%`,
+                  }}
+                >
+                  <div className="absolute left-2 right-2 top-1/2 h-0.5 -translate-y-1/2 bg-wine-500 shadow-[0_0_8px_2px_rgba(190,30,60,0.7)] animate-pulse" />
+                </div>
+                <p className="absolute top-3 left-0 right-0 text-center text-[11px] text-white/85 font-medium">
+                  Namiř čárový kód do rámečku
+                </p>
+              </div>
 
               {/* On-screen Tip Overlay */}
               {scanTip && (
