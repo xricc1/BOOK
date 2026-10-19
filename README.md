@@ -1,16 +1,27 @@
-# React + Vite
+# ISBN Skener & Knihovna
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Mobilní webová aplikace pro skenování čárových kódů knih a vedení osobní knihovny.
 
-Currently, two official plugins are available:
+## Co umí
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Skenování** čárového kódu knihy fotoaparátem (EAN-13 s prefixem 978/979), nahráním fotky kódu nebo ručním zadáním ISBN-10 / ISBN-13.
+- **Dohledání údajů** postupně v katalozích Knihovny.cz → Google Books → Open Library.
+- **Knihovna** uložená v prohlížeči (localStorage): vyhledávání, filtr podle žánru, řazení, úpravy a mazání.
+- **Kontrola duplicit**, která pozná stejnou knihu i pod ISBN-10 a ISBN-13.
 
-## React Compiler
+## Vývoj
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+npm run dev      # vývojový server
+npm run build    # produkční build do dist/
+npm run lint     # oxlint
+```
 
-## Expanding the Oxlint configuration
+## Nasazení
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+Push do větve `main` spustí GitHub Actions workflow (`.github/workflows/deploy.yml`), které aplikaci sestaví a nasadí na GitHub Pages pod cestou `/BOOK/`.
+
+## Technologie
+
+React 19, Vite, Tailwind CSS 4, framer-motion, html5-qrcode, lucide-react.

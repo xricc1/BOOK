@@ -2,6 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Book, Search, Trash2, Filter, SortAsc, BookOpen, Edit3, X, ChevronRight } from 'lucide-react';
 import { updateBookInLibrary, removeBookFromLibrary } from '../services/isbnService';
+import { CoverImage } from './CoverImage';
+
+// Some catalogs return books without an author, genre etc.
+const text = (value) => (value == null ? '' : String(value));
 
 export function LibraryTab({ books, setBooks, onSwitchToScan }) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -23,11 +27,15 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
   const filteredAndSortedBooks = useMemo(() => {
     return books
       .filter(book => {
+        const term = searchTerm.trim().toLowerCase();
+        // ISBN search ignores hyphens and spaces, e.g. "978-80-..." still matches
+        const isbnTerm = term.replace(/[^0-9x]/g, '');
         const matchesSearch =
-          book.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          book.author.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          book.isbn.includes(searchTerm) ||
-          book.genre.toLowerCase().includes(searchTerm.toLowerCase());
+          !term ||
+          text(book.title).toLowerCase().includes(term) ||
+          text(book.author).toLowerCase().includes(term) ||
+          (isbnTerm && text(book.isbn).toLowerCase().replace(/[^0-9x]/g, '').includes(isbnTerm)) ||
+          text(book.genre).toLowerCase().includes(term);
 
         const matchesGenre = selectedGenre === 'ALL' || book.genre === selectedGenre;
 
@@ -35,11 +43,11 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
       })
       .sort((a, b) => {
         if (sortBy === 'genre') {
-          return (a.genre || '').localeCompare(b.genre || '');
+          return text(a.genre).localeCompare(text(b.genre), 'cs');
         } else if (sortBy === 'title') {
-          return (a.title || '').localeCompare(b.title || '');
+          return text(a.title).localeCompare(text(b.title), 'cs');
         } else if (sortBy === 'author') {
-          return (a.author || '').localeCompare(b.author || '');
+          return text(a.author).localeCompare(text(b.author), 'cs');
         } else if (sortBy === 'date') {
           return new Date(b.addedAt || 0) - new Date(a.addedAt || 0);
         }
@@ -201,19 +209,12 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   {/* Book thumbnail */}
                   <div className="w-12 h-16 sm:w-14 sm:h-20 bg-black border border-zinc-800 rounded-lg flex-shrink-0 overflow-hidden flex items-center justify-center relative shadow-sm">
-                    {book.coverUrl ? (
-                      <img
-                        src={book.coverUrl}
-                        alt={book.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                        onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.src = '';
-                        }}
-                      />
-                    ) : (
-                      <BookOpen size={20} className="text-wine-600" />
-                    )}
+                    <CoverImage
+                      src={book.coverUrl}
+                      alt={book.title}
+                      iconSize={20}
+                      className="group-hover:scale-105 transition duration-200"
+                    />
                   </div>
 
                   {/* Book details row */}
@@ -288,7 +289,7 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                     <label className="text-xs font-medium text-zinc-400 block mb-1">Název knihy</label>
                     <input
                       type="text"
-                      value={editingBook.title}
+                      value={editingBook.title || ''}
                       onChange={(e) => setEditingBook({ ...editingBook, title: e.target.value })}
                       className="w-full bg-black border border-black-border text-white rounded-lg px-3 py-2 text-xs sm:text-sm outline-none focus:border-wine-500"
                     />
@@ -297,7 +298,7 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                     <label className="text-xs font-medium text-zinc-400 block mb-1">Autor</label>
                     <input
                       type="text"
-                      value={editingBook.author}
+                      value={editingBook.author || ''}
                       onChange={(e) => setEditingBook({ ...editingBook, author: e.target.value })}
                       className="w-full bg-black border border-black-border text-white rounded-lg px-3 py-2 text-xs sm:text-sm outline-none focus:border-wine-500"
                     />
@@ -307,7 +308,7 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                       <label className="text-xs font-medium text-zinc-400 block mb-1">Žánr</label>
                       <input
                         type="text"
-                        value={editingBook.genre}
+                        value={editingBook.genre || ''}
                         onChange={(e) => setEditingBook({ ...editingBook, genre: e.target.value })}
                         className="w-full bg-black border border-black-border text-white rounded-lg px-3 py-2 text-xs sm:text-sm outline-none focus:border-wine-500"
                       />
@@ -316,8 +317,28 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                       <label className="text-xs font-medium text-zinc-400 block mb-1">Rok</label>
                       <input
                         type="text"
-                        value={editingBook.publishYear}
+                        value={editingBook.publishYear || ''}
                         onChange={(e) => setEditingBook({ ...editingBook, publishYear: e.target.value })}
+                        className="w-full bg-black border border-black-border text-white rounded-lg px-3 py-2 text-xs sm:text-sm outline-none focus:border-wine-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-zinc-400 block mb-1">Počet stran</label>
+                      <input
+                        type="text"
+                        value={editingBook.pageCount || ''}
+                        onChange={(e) => setEditingBook({ ...editingBook, pageCount: e.target.value })}
+                        className="w-full bg-black border border-black-border text-white rounded-lg px-3 py-2 text-xs sm:text-sm outline-none focus:border-wine-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-zinc-400 block mb-1">Vydavatel</label>
+                      <input
+                        type="text"
+                        value={editingBook.publisher || ''}
+                        onChange={(e) => setEditingBook({ ...editingBook, publisher: e.target.value })}
                         className="w-full bg-black border border-black-border text-white rounded-lg px-3 py-2 text-xs sm:text-sm outline-none focus:border-wine-500"
                       />
                     </div>
@@ -326,7 +347,7 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                     <label className="text-xs font-medium text-zinc-400 block mb-1">Popis</label>
                     <textarea
                       rows={3}
-                      value={editingBook.description}
+                      value={editingBook.description || ''}
                       onChange={(e) => setEditingBook({ ...editingBook, description: e.target.value })}
                       className="w-full bg-black border border-black-border text-white rounded-lg px-3 py-2 text-xs sm:text-sm outline-none focus:border-wine-500 resize-none"
                     />
@@ -352,15 +373,11 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                 <div className="space-y-5 text-left pt-1">
                   <div className="flex flex-row gap-3.5 sm:gap-5 items-start">
                     <div className="w-24 h-36 sm:w-28 sm:h-40 bg-black border border-wine-800 rounded-xl flex-shrink-0 overflow-hidden flex items-center justify-center relative shadow-md">
-                      {selectedBook.coverUrl ? (
-                        <img
-                          src={selectedBook.coverUrl}
-                          alt={selectedBook.title}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <BookOpen size={30} className="text-wine-600" />
-                      )}
+                      <CoverImage
+                        src={selectedBook.coverUrl}
+                        alt={selectedBook.title}
+                        iconSize={30}
+                      />
                     </div>
 
                     <div className="flex-1 space-y-1.5 min-w-0 pr-6 sm:pr-0">
