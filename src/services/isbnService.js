@@ -1,4 +1,4 @@
-// Service for fetching book details by ISBN from Knihovny.cz, Google Books API, & Open Library API
+// Service for fetching book details by ISBN from Knihovny.cz, Google Books & Open Library
 
 export class CatalogError extends Error {
   constructor(message, code) {
@@ -138,112 +138,217 @@ export function getSampleBook(isbnRaw) {
   return null;
 }
 
-// 1. Search Knihovny.cz (Primary)
-async function searchKnihovnyCz(isbn) {
-  const response = await fetch(`https://www.knihovny.cz/api/v1/search?lookfor=${isbn}&type=Isbn`, {
-    headers: { 'Accept': 'application/json' }
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  const data = await response.json();
-  if (data && data.records && data.records.length > 0) {
-    const rec = data.records[0];
-    const authorStr = rec.authors?.primary ? Object.keys(rec.authors.primary).join(', ') : (rec.authors?.secondary ? Object.keys(rec.authors.secondary).join(', ') : 'Neznámý autor');
-    const pubYear = rec.publicationDates && rec.publicationDates.length > 0 ? rec.publicationDates[0] : '';
-    const cover = rec.images && rec.images.length > 0 ? rec.images[0] : null;
+// ---------------------------------------------------------------------------
+// Catalog lookup: Knihovny.cz first, then Google Books, then Open Library
+// ---------------------------------------------------------------------------
 
-    return {
-      id: `book-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      isbn: isbn,
-      title: rec.title || 'Neznámý název',
-      author: authorStr,
-      genre: rec.subjects && rec.subjects.length > 0 && rec.subjects[0].length > 0 ? rec.subjects[0][0] : 'Beletrie',
-      publishYear: pubYear ? pubYear.substring(0, 4) : 'Neuvedeno',
-      pageCount: rec.physical && rec.physical.length > 0 ? rec.physical[0] : 'Neuvedeno',
-      publisher: rec.publishers && rec.publishers.length > 0 ? rec.publishers[0] : 'Neuvedeno',
-      description: rec.summary && rec.summary.length > 0 ? rec.summary[0] : 'Kniha z katalogu Knihovny.cz.',
-      coverUrl: cover,
-      catalogSource: 'Knihovny.cz',
-      addedAt: new Date().toISOString(),
-    };
-  }
-  return null;
-}
+const REQUEST_TIMEOUT_MS = 8000;
 
-// 2. Search Google Books (Secondary)
-async function searchGoogleBooks(isbn) {
-  const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  const data = await response.json();
-  if (data.totalItems > 0 && data.items?.[0]?.volumeInfo) {
-    const info = data.items[0].volumeInfo;
+// Optional Google Books API key, injected at build time (GitHub secret
+// GOOGLE_BOOKS_API_KEY). Without a key Google shares one small daily quota
+// between all keyless apps, so lookups often fail with HTTP 429.
+const GOOGLE_BOOKS_API_KEY = import.meta.env?.VITE_GOOGLE_BOOKS_API_KEY || '';
 
-    let cover = info.imageLinks?.extraLarge ||
-               info.imageLinks?.large ||
-               info.imageLinks?.medium ||
-               info.imageLinks?.thumbnail ||
-               info.imageLinks?.smallThumbnail ||
-               null;
+const newBookId = () => `book-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-    if (cover && cover.startsWith('http:')) {
-      cover = cover.replace('http:', 'https:');
+async function fetchJson(url, { retries = 0 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchJsonOnce(url);
+    } catch (err) {
+      // Retry server hiccups (5xx) and network errors, not "not found" style answers
+      const retriable = !err.status || err.status >= 500;
+      if (attempt >= retries || !retriable) throw err;
+      await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
     }
-
-    return {
-      id: `book-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      isbn: isbn,
-      title: info.title || 'Neznámý název',
-      author: info.authors ? info.authors.join(', ') : 'Neznámý autor',
-      genre: info.categories ? info.categories.join(', ') : 'Beletrie',
-      publishYear: info.publishedDate ? info.publishedDate.substring(0, 4) : 'Neuvedeno',
-      pageCount: info.pageCount ? info.pageCount.toString() : 'Neuvedeno',
-      publisher: info.publisher || 'Neuvedeno',
-      description: info.description || 'K této knize není k dispozici žádný popis.',
-      coverUrl: cover || null,
-      catalogSource: 'Google Books',
-      addedAt: new Date().toISOString(),
-    };
   }
-  return null;
 }
 
-// 3. Search Open Library (Tertiary)
-async function searchOpenLibrary(isbn) {
-  const response = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+async function fetchJsonOnce(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const err = new Error(`HTTP ${response.status}`);
+      err.status = response.status;
+      throw err;
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
   }
-  const data = await response.json();
-  const bookKey = `ISBN:${isbn}`;
-  if (data && data[bookKey]) {
-    const info = data[bookKey];
-    const authors = info.authors ? info.authors.map(a => a.name).join(', ') : 'Neznámý autor';
-    const subjects = info.subjects ? info.subjects.slice(0, 2).map(s => s.name).join(', ') : 'Beletrie';
-    const cover = info.cover?.large || info.cover?.medium || info.cover?.small || null;
-
-    return {
-      id: `book-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      isbn: isbn,
-      title: info.title || 'Neznámý název',
-      author: authors,
-      genre: subjects,
-      publishYear: info.publish_date ? info.publish_date : 'Neuvedeno',
-      pageCount: info.number_of_pages ? info.number_of_pages.toString() : 'Neuvedeno',
-      publisher: info.publishers ? info.publishers.map(p => p.name).join(', ') : 'Neuvedeno',
-      description: 'Naskenovaná kniha z Open Library.',
-      coverUrl: cover,
-      catalogSource: 'Open Library',
-      addedAt: new Date().toISOString(),
-    };
-  }
-  return null;
 }
+
+/** First four-digit year in a string like "2017", "c2017" or "March 2017". */
+function extractYear(value) {
+  const match = String(value || '').match(/\b(1[5-9]\d\d|20\d\d)\b/);
+  return match ? match[1] : '';
+}
+
+/** Page count from a physical description like "237 stran : ilustrace ; 25 cm" or "223 s.". */
+export function extractPages(value) {
+  const match = String(value || '').match(/(\d+)\s*(?:stran|stránek|strana|str\.|s\.|pages|p\.)/i);
+  return match ? match[1] : '';
+}
+
+/** "Zdeněk Jirotka, 1911-2003" -> "Zdeněk Jirotka" */
+function cleanPersonName(name) {
+  return String(name || '').replace(/,\s*[\d\s?.–-]+$/, '').trim();
+}
+
+/** "Albatros," -> "Albatros" */
+function cleanPublisher(value) {
+  return String(value || '').replace(/[\s,:;/]+$/, '').trim();
+}
+
+function capitalize(value) {
+  const s = String(value || '').trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+const nameList = (group) => (group && !Array.isArray(group) ? Object.keys(group) : []);
 
 /**
- * Fetch book details by ISBN with catalog cascading: Knihovny.cz -> Google Books -> Open Library
+ * Pick the record that really belongs to the ISBN.
+ * Knihovny.cz sometimes returns several titles for one ISBN, e.g. every volume
+ * of a box set lists the set's ISBN. The set itself says "7 svazků".
+ */
+function pickKnihovnyRecord(records, isbn) {
+  const target = normalizeIsbn(isbn);
+  const matching = records.filter(r =>
+    (r.isbns || []).some(i => normalizeIsbn(i) === target) ||
+    (r.cleanIsbn && normalizeIsbn(r.cleanIsbn) === target)
+  );
+  // The ISN search is fuzzy: for an unknown ISBN it can return an unrelated book
+  if (!matching.length) return null;
+  const pool = matching;
+  const books = pool.filter(r => (r.formats || []).some(f => String(f).includes('BOOKS')));
+  const candidates = books.length ? books : pool;
+
+  const titles = new Set(candidates.map(r => String(r.title || '').toLowerCase()));
+  if (titles.size > 1) {
+    const set = candidates.find(r => (r.physicalDescriptions || []).some(p => /svazk|svazek|\bsv\./i.test(p)));
+    if (set) return set;
+  }
+
+  // Prefer the most complete record
+  const score = (r) =>
+    (r.summary?.length ? 2 : 0) +
+    (nameList(r.authors?.primary).length ? 2 : 0) +
+    (r.publishers?.length ? 1 : 0) +
+    (r.physicalDescriptions?.length ? 1 : 0) +
+    (r.subjects?.length ? 1 : 0);
+  return candidates.reduce((best, r) => (score(r) > score(best) ? r : best), candidates[0]);
+}
+
+const KNIHOVNY_FIELDS = [
+  'id', 'title', 'isbns', 'cleanIsbn', 'formats', 'authors', 'publicationDates',
+  'publishers', 'physicalDescriptions', 'summary', 'subjects',
+];
+
+// 1. Knihovny.cz (primary) - union catalog of Czech libraries
+export function knihovnyRecordToBook(rec, isbn) {
+  const authors = nameList(rec.authors?.primary);
+  const fallbackAuthors = authors.length ? authors : nameList(rec.authors?.corporate);
+  const subject = (rec.subjects || []).find(s => Array.isArray(s) && s.length);
+  const summary = (rec.summary || []).find(Boolean);
+
+  return {
+    id: newBookId(),
+    isbn,
+    title: String(rec.title || '').replace(/\s*\/\s*$/, '') || 'Neznámý název',
+    author: fallbackAuthors.map(cleanPersonName).filter(Boolean).join(', ') || 'Neznámý autor',
+    genre: subject ? capitalize(subject[0]) : 'Beletrie',
+    publishYear: extractYear((rec.publicationDates || [])[0]) || 'Neuvedeno',
+    pageCount: extractPages((rec.physicalDescriptions || [])[0]) || 'Neuvedeno',
+    publisher: cleanPublisher((rec.publishers || [])[0]) || 'Neuvedeno',
+    description: summary || 'Kniha z katalogu Knihovny.cz.',
+    // Knihovny.cz API has no covers; Open Library often has one for the ISBN
+    coverUrl: openLibraryCoverUrl(isbn),
+    catalogSource: 'Knihovny.cz',
+    addedAt: new Date().toISOString(),
+  };
+}
+
+async function searchKnihovnyCz(isbn) {
+  const params = new URLSearchParams({ lookfor: isbn, type: 'ISN', limit: '10' });
+  KNIHOVNY_FIELDS.forEach(f => params.append('field[]', f));
+  // Knihovny.cz occasionally answers 500 for a valid query; one retry fixes it
+  const data = await fetchJson(`https://www.knihovny.cz/api/v1/search?${params}`, { retries: 1 });
+  if (data?.status && data.status !== 'OK') throw new Error(data.statusMessage || 'Knihovny.cz error');
+  const records = data?.records || [];
+  const record = records.length ? pickKnihovnyRecord(records, isbn) : null;
+  return record ? knihovnyRecordToBook(record, isbn) : null;
+}
+
+function openLibraryCoverUrl(isbn) {
+  // default=false makes a missing cover a 404, so the placeholder is shown instead
+  return `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`;
+}
+
+// 2. Google Books (secondary)
+async function searchGoogleBooks(isbn) {
+  const params = new URLSearchParams({ q: `isbn:${isbn}`, country: 'CZ' });
+  if (GOOGLE_BOOKS_API_KEY) params.set('key', GOOGLE_BOOKS_API_KEY);
+  const data = await fetchJson(`https://www.googleapis.com/books/v1/volumes?${params}`);
+  const info = data?.totalItems > 0 ? data.items?.[0]?.volumeInfo : null;
+  if (!info) return null;
+
+  let cover = info.imageLinks?.extraLarge || info.imageLinks?.large || info.imageLinks?.medium ||
+    info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || null;
+  if (cover) cover = cover.replace(/^http:/, 'https:');
+
+  return {
+    id: newBookId(),
+    isbn,
+    title: [info.title, info.subtitle].filter(Boolean).join(': ') || 'Neznámý název',
+    author: info.authors ? info.authors.join(', ') : 'Neznámý autor',
+    genre: info.categories ? info.categories.join(', ') : 'Beletrie',
+    publishYear: extractYear(info.publishedDate) || 'Neuvedeno',
+    pageCount: info.pageCount ? String(info.pageCount) : 'Neuvedeno',
+    publisher: info.publisher || 'Neuvedeno',
+    description: info.description || 'K této knize není k dispozici žádný popis.',
+    coverUrl: cover || openLibraryCoverUrl(isbn),
+    catalogSource: 'Google Books',
+    addedAt: new Date().toISOString(),
+  };
+}
+
+// 3. Open Library (last resort)
+async function searchOpenLibrary(isbn) {
+  const data = await fetchJson(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`);
+  const info = data?.[`ISBN:${isbn}`];
+  if (!info) return null;
+
+  return {
+    id: newBookId(),
+    isbn,
+    title: info.title || 'Neznámý název',
+    author: info.authors ? info.authors.map(a => a.name).join(', ') : 'Neznámý autor',
+    genre: info.subjects ? info.subjects.slice(0, 2).map(s => s.name).join(', ') : 'Beletrie',
+    publishYear: extractYear(info.publish_date) || 'Neuvedeno',
+    pageCount: info.number_of_pages ? String(info.number_of_pages) : 'Neuvedeno',
+    publisher: info.publishers ? info.publishers.map(p => p.name).join(', ') : 'Neuvedeno',
+    description: 'Kniha z katalogu Open Library.',
+    coverUrl: info.cover?.large || info.cover?.medium || info.cover?.small || null,
+    catalogSource: 'Open Library',
+    addedAt: new Date().toISOString(),
+  };
+}
+
+const CATALOGS = [
+  { name: 'Knihovny.cz', search: searchKnihovnyCz },
+  { name: 'Google Books', search: searchGoogleBooks },
+  { name: 'Open Library', search: searchOpenLibrary },
+];
+
+/**
+ * Fetch book details by ISBN: Knihovny.cz -> Google Books -> Open Library.
+ * options.onProgress(catalogName) is called before each catalog is asked.
  */
 export async function fetchBookByIsbn(isbnRaw, options = {}) {
   const isbn = cleanIsbn(isbnRaw);
@@ -258,40 +363,25 @@ export async function fetchBookByIsbn(isbnRaw, options = {}) {
     throw new CatalogError('Zadané ISBN není platné. Zkontroluj číslo a zkus to znovu.', 'INVALID_ISBN');
   }
 
-  let networkSuccessCount = 0;
+  // Catalogs index books under ISBN-13; old books may only have ISBN-10
+  const isbn13 = normalizeIsbn(isbn);
 
-  // 1. Try Knihovny.cz
-  try {
-    const book = await searchKnihovnyCz(isbn);
-    if (book) return book;
-    networkSuccessCount++;
-  } catch (err) {
-    console.warn('Knihovny.cz catalog lookup unavailable:', err);
+  let answeredCount = 0;
+  for (const catalog of CATALOGS) {
+    options.onProgress?.(catalog.name);
+    try {
+      const book = await catalog.search(isbn13);
+      if (book) return book;
+      answeredCount++;
+    } catch (err) {
+      console.warn(`${catalog.name} lookup unavailable:`, err);
+    }
   }
 
-  // 2. Try Google Books API
-  try {
-    const book = await searchGoogleBooks(isbn);
-    if (book) return book;
-    networkSuccessCount++;
-  } catch (err) {
-    console.warn('Google Books catalog lookup unavailable:', err);
+  if (answeredCount > 0) {
+    throw new CatalogError('Knihu se nepodařilo najít v Knihovny.cz ani v Google Books. Údaje můžeš doplnit ručně.', 'NOT_FOUND');
   }
-
-  // 3. Try Open Library API
-  try {
-    const book = await searchOpenLibrary(isbn);
-    if (book) return book;
-    networkSuccessCount++;
-  } catch (err) {
-    console.warn('Open Library catalog lookup unavailable:', err);
-  }
-
-  if (networkSuccessCount > 0) {
-    throw new CatalogError('Knihu se nepodařilo najít v dostupných katalozích.', 'NOT_FOUND');
-  } else {
-    throw new CatalogError('Katalog je teď nedostupný. Zkus to prosím později.', 'SERVICE_UNAVAILABLE');
-  }
+  throw new CatalogError('Katalogy jsou teď nedostupné. Zkontroluj připojení k internetu a zkus to znovu.', 'SERVICE_UNAVAILABLE');
 }
 
 // Local storage management
