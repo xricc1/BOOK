@@ -6,8 +6,11 @@ import {
   BookOpen, BookmarkCheck, Upload, Zap, ZapOff, ZoomIn, Info, ExternalLink
 } from 'lucide-react';
 import {
-  fetchBookByIsbn, cleanIsbn, isValidIsbn, findSavedBookByIsbn, SAMPLE_BOOKS
+  fetchBookByIsbn, cleanIsbn, isValidIsbn, isBookBarcode, findSavedBookByIsbn, SAMPLE_BOOKS
 } from '../services/isbnService';
+import { CoverImage } from './CoverImage';
+
+const NOT_A_BOOK_MESSAGE = 'Tento čárový kód nepatří knize. Hledej kód začínající 978 nebo 979, nebo zadej ISBN ručně.';
 
 export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
   const [isbnInput, setIsbnInput] = useState('');
@@ -29,6 +32,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
   const [scanTip, setScanTip] = useState('');
 
   const html5QrcodeRef = useRef(null);
+  const handleSearchRef = useRef(null);
   const tipTimerRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -38,10 +42,19 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
 
     if (!targetIsbn) return;
 
+    if (options.fromScan && !isBookBarcode(targetIsbn)) {
+      setError(NOT_A_BOOK_MESSAGE);
+      setScannedBook(null);
+      setExistingDuplicate(null);
+      setLoading(false);
+      return;
+    }
+
     if (!isValidIsbn(targetIsbn) && !options.isSample) {
       setError('Zadané ISBN není platné. Zkontroluj číslo a zkus to znovu.');
       setScannedBook(null);
       setExistingDuplicate(null);
+      setLoading(false);
       return;
     }
 
@@ -67,6 +80,12 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
       setLoading(false);
     }
   }, [isbnInput]);
+
+  // Keep the latest search function in a ref so the camera effect
+  // does not restart every time the ISBN input changes
+  useEffect(() => {
+    handleSearchRef.current = handleSearch;
+  }, [handleSearch]);
 
   // Handle dynamic tips based on scan duration
   const startTipRotation = () => {
@@ -100,6 +119,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
       const elementId = "reader";
       const html5Qrcode = new Html5Qrcode(elementId);
       html5QrcodeRef.current = html5Qrcode;
+      let handled = false;
 
       const config = {
         fps: 15,
@@ -109,11 +129,8 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
           return { width: Math.max(width, 220), height: Math.max(height, 120) };
         },
         aspectRatio: 1.777778,
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_128
-        ],
+        // Books use EAN-13 barcodes (978/979 prefix)
+        formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13],
         videoConstraints: {
           facingMode: { exact: "environment" },
           width: { ideal: 1920 },
@@ -126,15 +143,19 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
           cameraConfig,
           config,
           (decodedText) => {
+            // Ignore non-book barcodes and keep scanning
+            if (handled || !isBookBarcode(decodedText)) {
+              if (!handled) setScanTip('Tohle není kód knihy (978/979)');
+              return;
+            }
+            handled = true;
             stopTipRotation();
-            html5Qrcode.stop().then(() => {
+            const finish = () => {
               html5QrcodeRef.current = null;
               setIsCameraActive(false);
-              handleSearch(decodedText);
-            }).catch(() => {
-              setIsCameraActive(false);
-              handleSearch(decodedText);
-            });
+              handleSearchRef.current?.(decodedText, { fromScan: true });
+            };
+            html5Qrcode.stop().then(finish).catch(finish);
           },
           () => {
             // Scan frame pass
@@ -168,7 +189,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
             startCameraWithConfig({ facingMode: "environment" });
           } else {
             setIsCameraActive(false);
-            setError('Kód se nepodařilo přečíst. Zkus lepší světlo nebo ruční zadání ISBN.');
+            setError('Kameru se nepodařilo spustit. Povol přístup ke kameře, nebo nahraj fotku kódu.');
           }
         });
       };
@@ -188,8 +209,11 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
       if (html5QrcodeRef.current) {
         html5QrcodeRef.current.stop().catch(() => {});
       }
+      setTorchSupported(false);
+      setTorchOn(false);
+      setZoomSupported(false);
     };
-  }, [isCameraActive, handleSearch]);
+  }, [isCameraActive]);
 
   // Torch toggle handler
   const toggleTorch = async () => {
@@ -240,7 +264,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
       html5Qrcode.clear();
       document.body.removeChild(tempContainer);
 
-      await handleSearch(decodedText);
+      await handleSearch(decodedText, { fromScan: true });
     } catch (err) {
       if (document.getElementById('temp-file-reader')) {
         document.body.removeChild(tempContainer);
@@ -627,22 +651,12 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
               <div className="flex flex-row gap-4 sm:gap-6 items-start">
                 {/* Cover Image or Placeholder */}
                 <div className="w-24 h-36 sm:w-36 sm:h-52 bg-black border border-wine-900 rounded-xl flex-shrink-0 overflow-hidden flex items-center justify-center relative shadow-lg">
-                  {scannedBook.coverUrl ? (
-                    <img
-                      src={scannedBook.coverUrl}
-                      alt={scannedBook.title}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.onerror = null;
-                        e.target.src = '';
-                      }}
-                    />
-                  ) : (
-                    <div className="text-center p-2">
-                      <BookOpen size={32} className="text-wine-600 mx-auto mb-1" />
-                      <span className="text-[10px] text-zinc-500 font-mono">Bez obálky</span>
-                    </div>
-                  )}
+                  <CoverImage
+                    src={scannedBook.coverUrl}
+                    alt={scannedBook.title}
+                    iconSize={32}
+                    label="Bez obálky"
+                  />
                 </div>
 
                 {/* Details */}

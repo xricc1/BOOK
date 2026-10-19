@@ -45,8 +45,8 @@ export const SAMPLE_BOOKS = {
     coverUrl: "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&q=80&w=400",
     catalogSource: "Ukázková data",
   },
-  "9788074628886": {
-    isbn: "9788074628886",
+  "9788074628887": {
+    isbn: "9788074628887",
     title: "Sto roků samoty",
     author: "Gabriel García Márquez",
     genre: "Magický realismus",
@@ -93,6 +93,33 @@ export function isValidIsbn(isbnStr) {
     const checkDigit = (10 - (sum % 10)) % 10;
     return checkDigit === parseInt(clean[12], 10);
   }
+  return false;
+}
+
+/**
+ * Convert a valid ISBN-10 to ISBN-13 (978 prefix). Other input is returned cleaned.
+ * Used so the same book is recognised regardless of which ISBN form was scanned.
+ */
+export function normalizeIsbn(isbnStr) {
+  const clean = cleanIsbn(isbnStr);
+  if (clean.length === 10 && isValidIsbn(clean)) {
+    const base = '978' + clean.substring(0, 9);
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      sum += parseInt(base[i], 10) * (i % 2 === 0 ? 1 : 3);
+    }
+    return base + ((10 - (sum % 10)) % 10);
+  }
+  return clean;
+}
+
+/**
+ * True when a scanned barcode is a book barcode (EAN-13 with 978/979 prefix) or an ISBN-10.
+ */
+export function isBookBarcode(code) {
+  const clean = cleanIsbn(code);
+  if (clean.length === 13) return /^97[89]/.test(clean) && isValidIsbn(clean);
+  if (clean.length === 10) return isValidIsbn(clean);
   return false;
 }
 
@@ -221,14 +248,14 @@ async function searchOpenLibrary(isbn) {
 export async function fetchBookByIsbn(isbnRaw, options = {}) {
   const isbn = cleanIsbn(isbnRaw);
 
-  if (!isValidIsbn(isbn)) {
-    throw new CatalogError('Zadané ISBN není platné. Zkontroluj číslo a zkus to znovu.', 'INVALID_ISBN');
-  }
-
-  // Check if sample override is explicitly requested
+  // Sample override is checked first so demo buttons always work
   if (options.isSample) {
     const sample = getSampleBook(isbn);
     if (sample) return sample;
+  }
+
+  if (!isValidIsbn(isbn)) {
+    throw new CatalogError('Zadané ISBN není platné. Zkontroluj číslo a zkus to znovu.', 'INVALID_ISBN');
   }
 
   let networkSuccessCount = 0;
@@ -273,41 +300,9 @@ const LOCAL_STORAGE_KEY = 'vytvorene_knihy_isbn_library_v1';
 export function getSavedBooks() {
   try {
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!stored) {
-      const initialBooks = [
-        {
-          id: 'initial-1',
-          isbn: '9788020712349',
-          title: '1984',
-          author: 'George Orwell',
-          genre: 'Antiutopie / Sci-Fi',
-          publishYear: '1949',
-          pageCount: '328',
-          publisher: 'Odeon',
-          description: 'Klasický román George Orwella popisuje svět pod diktaturou Velkého bratra.',
-          coverUrl: 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&q=80&w=400',
-          catalogSource: 'Ukázková data',
-          addedAt: new Date(Date.now() - 86400000 * 2).toISOString()
-        },
-        {
-          id: 'initial-2',
-          isbn: '9788073812348',
-          title: 'Válka s Mloky',
-          author: 'Karel Čapek',
-          genre: 'Sci-Fi / Satira',
-          publishYear: '1936',
-          pageCount: '280',
-          publisher: 'Fr. Borový',
-          description: 'Metaforické a varovné dílo Karla Čapka sledijící objev inteligencí obdařených mloků.',
-          coverUrl: 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&q=80&w=400',
-          catalogSource: 'Ukázková data',
-          addedAt: new Date(Date.now() - 86400000 * 1).toISOString()
-        }
-      ];
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initialBooks));
-      return initialBooks;
-    }
-    return JSON.parse(stored);
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
     console.error('Error reading books from localStorage', err);
     return [];
@@ -315,29 +310,33 @@ export function getSavedBooks() {
 }
 
 export function isBookInLibrary(isbnRaw) {
-  const isbn = cleanIsbn(isbnRaw);
-  if (!isbn) return false;
-  const books = getSavedBooks();
-  return books.some(b => cleanIsbn(b.isbn) === isbn);
+  return findSavedBookByIsbn(isbnRaw) !== null;
 }
 
 export function findSavedBookByIsbn(isbnRaw) {
-  const isbn = cleanIsbn(isbnRaw);
+  const isbn = normalizeIsbn(isbnRaw);
   if (!isbn) return null;
   const books = getSavedBooks();
-  return books.find(b => cleanIsbn(b.isbn) === isbn) || null;
+  return books.find(b => normalizeIsbn(b.isbn) === isbn) || null;
 }
 
 export function saveBookToLibrary(book) {
   const books = getSavedBooks();
-  const normalizedBookIsbn = cleanIsbn(book.isbn);
+  const normalizedBookIsbn = normalizeIsbn(book.isbn);
 
-  const existingIndex = books.findIndex(b => cleanIsbn(b.isbn) === normalizedBookIsbn);
+  const existingIndex = books.findIndex(b => normalizeIsbn(b.isbn) === normalizedBookIsbn);
   let updatedBooks;
 
   if (existingIndex >= 0) {
     updatedBooks = [...books];
-    updatedBooks[existingIndex] = { ...book, updated: true, addedAt: new Date().toISOString() };
+    const existing = books[existingIndex];
+    // Keep the original id and date added so the library entry stays stable
+    updatedBooks[existingIndex] = {
+      ...book,
+      id: existing.id || book.id,
+      addedAt: existing.addedAt || book.addedAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
   } else {
     const newBook = {
       ...book,
@@ -352,7 +351,7 @@ export function saveBookToLibrary(book) {
 
 export function removeBookFromLibrary(bookId) {
   const books = getSavedBooks();
-  const filtered = books.filter(b => b.id !== bookId && cleanIsbn(b.isbn) !== cleanIsbn(bookId));
+  const filtered = books.filter(b => b.id !== bookId);
   localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(filtered));
   return filtered;
 }
