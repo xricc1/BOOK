@@ -704,6 +704,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
                 <div className="w-24 h-36 sm:w-36 sm:h-52 bg-black border border-wine-900 rounded-xl flex-shrink-0 overflow-hidden flex items-center justify-center relative shadow-lg">
                   <CoverImage
                     src={scannedBook.coverUrl}
+                    isbn={scannedBook.isbn}
                     alt={scannedBook.title}
                     iconSize={32}
                     label="Bez obálky"
