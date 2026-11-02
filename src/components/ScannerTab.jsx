@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Camera, Search, Sparkles, Check, Edit2, AlertCircle, RefreshCw,
+  Camera, Search, Sparkles, Check, Edit2, AlertCircle, RefreshCw, BookPlus,
   BookOpen, BookmarkCheck, Upload, Zap, ZapOff, ZoomIn, Info, ExternalLink
 } from 'lucide-react';
 import {
-  fetchBookByIsbn, cleanIsbn, isValidIsbn, isBookBarcode, normalizeIsbn, findSavedBookByIsbn, SAMPLE_BOOKS
+  fetchBookByIsbn, cleanIsbn, isValidIsbn, isBookBarcode, normalizeIsbn, findSavedBookByIsbn, findSavedBookByTitle, SAMPLE_BOOKS
 } from '../services/isbnService';
 import { CoverImage } from './CoverImage';
 import {
@@ -263,12 +263,11 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     }
   };
 
-  // Book not in any catalog: start an empty record with the ISBN and open the editor
-  const handleAddManually = () => {
-    if (!notFoundIsbn) return;
+  // Book not in any catalog, or without any ISBN: start an empty record and open the editor
+  const handleAddManually = (isbn = notFoundIsbn) => {
     const book = {
       id: `book-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      isbn: notFoundIsbn,
+      isbn: isbn || '',
       title: '',
       author: '',
       genre: '',
@@ -282,6 +281,8 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     };
     setError(null);
     setNotFoundIsbn(null);
+    setExistingDuplicate(null);
+    setSaveSuccess(false);
     setScannedBook(book);
     setEditForm(book);
     setIsEditing(true);
@@ -296,12 +297,18 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
       return;
     }
     setError(null);
+    if (!finalBook.isbn) {
+      const sameBook = findSavedBookByTitle(finalBook.title, finalBook.author, finalBook.id);
+      if (sameBook && !confirm(`Kniha „${sameBook.title}“ od autora ${sameBook.author || 'neuveden'} už v knihovně je. Uložit ji znovu?`)) {
+        return;
+      }
+    }
     onBookSaved(finalBook);
     setSaveSuccess(true);
     setIsEditing(false);
 
     // Update local state if it was a duplicate
-    const updatedSaved = findSavedBookByIsbn(finalBook.isbn);
+    const updatedSaved = finalBook.isbn ? findSavedBookByIsbn(finalBook.isbn) : null;
     if (updatedSaved) setExistingDuplicate(updatedSaved);
 
     setTimeout(() => {
@@ -507,6 +514,16 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
           </button>
         </form>
 
+        {/* Books without any ISBN (old books, private prints) */}
+        <button
+          type="button"
+          onClick={() => handleAddManually('')}
+          className="w-full flex items-center justify-center gap-2 text-xs sm:text-sm text-zinc-300 hover:text-white bg-black hover:bg-zinc-900 border border-dashed border-zinc-700 hover:border-wine-700 rounded-xl py-3 px-4 transition cursor-pointer touch-manipulation min-h-[44px]"
+        >
+          <BookPlus size={16} className="text-wine-500" />
+          Kniha nemá ISBN? Zapsat ručně
+        </button>
+
         {/* Quick Sample ISBN Buttons */}
         <div className="space-y-2 pt-1">
           <div className="text-[11px] sm:text-xs text-zinc-500 uppercase tracking-wider font-medium">
@@ -557,7 +574,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
             <p className="text-xs text-zinc-300 leading-relaxed">{error}</p>
             {notFoundIsbn && (
               <button
-                onClick={handleAddManually}
+                onClick={() => handleAddManually(notFoundIsbn)}
                 className="mt-2 inline-flex items-center gap-1.5 text-xs bg-wine-700 hover:bg-wine-600 text-white font-medium px-3 py-2 rounded-lg transition cursor-pointer touch-manipulation min-h-[36px]"
               >
                 <Edit2 size={13} />
@@ -613,11 +630,11 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-black-border pb-4">
               <div className="space-y-1">
                 <span className="text-xs font-mono text-wine-400 uppercase tracking-widest block">
-                  Detail naskenované knihy
+                  {scannedBook.catalogSource === 'Ruční zadání' ? 'Ruční zápis knihy' : 'Detail naskenované knihy'}
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-mono bg-zinc-900 text-zinc-300 px-2.5 py-1 rounded-md border border-zinc-800">
-                    ISBN: {scannedBook.isbn}
+                    {scannedBook.isbn ? `ISBN: ${scannedBook.isbn}` : 'Bez ISBN'}
                   </span>
                   {scannedBook.catalogSource && (
                     <span className="text-xs font-medium bg-wine-950 text-wine-300 px-2.5 py-1 rounded-md border border-wine-800/80">
@@ -687,6 +704,15 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
                       className="w-full bg-black border border-black-border focus:border-wine-500 text-white rounded-lg px-3 py-2 text-sm outline-none"
                     />
                   </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-zinc-400 block mb-1">Vydavatel</label>
+                  <input
+                    type="text"
+                    value={editForm.publisher || ''}
+                    onChange={(e) => setEditForm({ ...editForm, publisher: e.target.value })}
+                    className="w-full bg-black border border-black-border focus:border-wine-500 text-white rounded-lg px-3 py-2 text-sm outline-none"
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-zinc-400 block mb-1">Popis</label>

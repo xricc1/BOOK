@@ -410,7 +410,10 @@ export function saveBookToLibrary(book) {
   const books = getSavedBooks();
   const normalizedBookIsbn = normalizeIsbn(book.isbn);
 
-  const existingIndex = books.findIndex(b => normalizeIsbn(b.isbn) === normalizedBookIsbn);
+  // Books with an ISBN are matched by ISBN; books without one (old or private prints) by their id
+  const existingIndex = normalizedBookIsbn
+    ? books.findIndex(b => normalizeIsbn(b.isbn) === normalizedBookIsbn)
+    : books.findIndex(b => b.id && b.id === book.id);
   let updatedBooks;
 
   if (existingIndex >= 0) {
@@ -447,6 +450,16 @@ export function updateBookInLibrary(updatedBook) {
   const updated = books.map(b => b.id === updatedBook.id ? updatedBook : b);
   localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
   return updated;
+}
+
+/**
+ * A saved book without ISBN with the same title and author (to warn about duplicates).
+ */
+export function findSavedBookByTitle(title, author, exceptId) {
+  const norm = (v) => String(v || '').trim().toLowerCase();
+  if (!norm(title)) return null;
+  return getSavedBooks().find(b => !b.isbn && b.id !== exceptId &&
+    norm(b.title) === norm(title) && norm(b.author) === norm(author)) || null;
 }
 
 export function replaceLibrary(books) {
