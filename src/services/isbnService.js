@@ -448,3 +448,8 @@ export function updateBookInLibrary(updatedBook) {
   localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
   return updated;
 }
+
+export function replaceLibrary(books) {
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(books));
+  return books;
+}
