@@ -398,7 +398,7 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                       </p>
 
                       <div className="text-[11px] text-zinc-500 font-mono pt-1 space-y-0.5">
-                        <div><span className="text-zinc-600">ISBN:</span> {selectedBook.isbn}</div>
+                        <div><span className="text-zinc-600">ISBN:</span> {selectedBook.isbn || 'bez ISBN'}</div>
                         <div><span className="text-zinc-600">Rok:</span> {selectedBook.publishYear || '—'}</div>
                         <div><span className="text-zinc-600">Stran:</span> {selectedBook.pageCount || '—'}</div>
                         {selectedBook.publisher && (
