@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Book, Search, Trash2, Filter, SortAsc, BookOpen, Edit3, X, ChevronRight } from 'lucide-react';
 import { updateBookInLibrary, removeBookFromLibrary } from '../services/isbnService';
 import { CoverImage } from './CoverImage';
+import { BackupPanel } from './BackupPanel';
 
 // Some catalogs return books without an author, genre etc.
 const text = (value) => (value == null ? '' : String(value));
@@ -97,6 +98,9 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
           Naskenovat novou knihu
         </button>
       </div>
+
+      {/* Backup / restore */}
+      <BackupPanel books={books} setBooks={setBooks} />
 
       {/* Search & Sort Toolbar */}
       <div className="bg-black-card border border-black-border rounded-2xl p-3.5 sm:p-5 space-y-3 shadow-xl">
