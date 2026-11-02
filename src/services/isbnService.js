@@ -1,4 +1,5 @@
 // Service for fetching book details by ISBN from Knihovny.cz, Google Books & Open Library
+import { openLibraryCoverUrl } from './coverService';
 
 export class CatalogError extends Error {
   constructor(message, code) {
@@ -267,7 +268,7 @@ export function knihovnyRecordToBook(rec, isbn) {
     pageCount: extractPages((rec.physicalDescriptions || [])[0]) || 'Neuvedeno',
     publisher: cleanPublisher((rec.publishers || [])[0]) || 'Neuvedeno',
     description: summary || 'Kniha z katalogu Knihovny.cz.',
-    // Knihovny.cz API has no covers; Open Library often has one for the ISBN
+    // Knihovny.cz API has no covers; CoverImage also tries obalkyknih.cz by ISBN
     coverUrl: openLibraryCoverUrl(isbn),
     catalogSource: 'Knihovny.cz',
     addedAt: new Date().toISOString(),
@@ -283,11 +284,6 @@ async function searchKnihovnyCz(isbn) {
   const records = data?.records || [];
   const record = records.length ? pickKnihovnyRecord(records, isbn) : null;
   return record ? knihovnyRecordToBook(record, isbn) : null;
-}
-
-function openLibraryCoverUrl(isbn) {
-  // default=false makes a missing cover a 404, so the placeholder is shown instead
-  return `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`;
 }
 
 // 2. Google Books (secondary)

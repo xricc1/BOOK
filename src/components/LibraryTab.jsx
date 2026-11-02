@@ -211,6 +211,7 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                   <div className="w-12 h-16 sm:w-14 sm:h-20 bg-black border border-zinc-800 rounded-lg flex-shrink-0 overflow-hidden flex items-center justify-center relative shadow-sm">
                     <CoverImage
                       src={book.coverUrl}
+                      isbn={book.isbn}
                       alt={book.title}
                       iconSize={20}
                       className="group-hover:scale-105 transition duration-200"
@@ -375,6 +376,7 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                     <div className="w-24 h-36 sm:w-28 sm:h-40 bg-black border border-wine-800 rounded-xl flex-shrink-0 overflow-hidden flex items-center justify-center relative shadow-md">
                       <CoverImage
                         src={selectedBook.coverUrl}
+                        isbn={selectedBook.isbn}
                         alt={selectedBook.title}
                         iconSize={30}
                       />
