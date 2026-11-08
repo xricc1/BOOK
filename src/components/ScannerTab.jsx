@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Camera, Search, Sparkles, Check, Edit2, AlertCircle, RefreshCw, BookPlus,
+  Camera, Search, Sparkles, Check, Edit2, AlertCircle, RefreshCw, BookPlus, ScanBarcode,
   BookOpen, BookmarkCheck, Upload, Zap, ZapOff, ZoomIn, Info, ExternalLink
 } from 'lucide-react';
 import {
   fetchBookByIsbn, cleanIsbn, isValidIsbn, isBookBarcode, normalizeIsbn, findSavedBookByIsbn, findSavedBookByTitle, SAMPLE_BOOKS
 } from '../services/isbnService';
 import { CoverImage } from './CoverImage';
+import { BatchScanner } from './BatchScanner';
 import {
   openCamera, stopStream, startScanLoop, decodeImageFile, GUIDE
 } from '../services/barcodeScanner';
@@ -34,6 +35,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
   const [zoomRange, setZoomRange] = useState({ min: 1, max: 1, step: 0.1 });
   const [currentZoom, setCurrentZoom] = useState(1);
   const [scanTip, setScanTip] = useState('');
+  const [batchMode, setBatchMode] = useState(false);
 
   const videoRef = useRef(null);
   const viewportRef = useRef(null);
@@ -321,6 +323,16 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     handleSearch(isbn, { isSample: true });
   };
 
+  if (batchMode) {
+    return (
+      <BatchScanner
+        onBookSaved={onBookSaved}
+        onClose={() => setBatchMode(false)}
+        onSwitchToLibrary={onSwitchToLibrary}
+      />
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-5 sm:space-y-8">
       {/* Header section */}
@@ -464,6 +476,22 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
                 className="hidden"
               />
             </label>
+
+            <button
+              onClick={() => {
+                setError(null);
+                setScannedBook(null);
+                setExistingDuplicate(null);
+                setBatchMode(true);
+              }}
+              className="sm:col-span-2 flex items-center justify-center gap-3 bg-black hover:bg-zinc-900 text-zinc-200 hover:text-white border border-wine-800/70 hover:border-wine-600 font-medium py-3 px-5 rounded-xl transition duration-200 cursor-pointer touch-manipulation min-h-[48px]"
+            >
+              <ScanBarcode size={20} className="text-wine-400" />
+              <span className="text-left">
+                <span className="block">Rychlé skenování víc knih</span>
+                <span className="block text-[11px] text-zinc-500 font-normal">Projížděj kódy za sebou, ukládá se samo</span>
+              </span>
+            </button>
           </div>
         )}
 
