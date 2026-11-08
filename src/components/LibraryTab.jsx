@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Book, Search, Trash2, Filter, SortAsc, BookOpen, Edit3, X, ChevronRight } from 'lucide-react';
+import { Book, Search, Trash2, Filter, SortAsc, BookOpen, Edit3, X, ChevronRight, HandHelping } from 'lucide-react';
 import { updateBookInLibrary, removeBookFromLibrary } from '../services/isbnService';
 import { CoverImage } from './CoverImage';
 import { BackupPanel } from './BackupPanel';
+import { LoanPanel } from './LoanPanel';
+import { isLent, isOverdue } from '../services/loanService';
 
 // Some catalogs return books without an author, genre etc.
 const text = (value) => (value == null ? '' : String(value));
@@ -38,7 +40,8 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
           (isbnTerm && text(book.isbn).toLowerCase().replace(/[^0-9x]/g, '').includes(isbnTerm)) ||
           text(book.genre).toLowerCase().includes(term);
 
-        const matchesGenre = selectedGenre === 'ALL' || book.genre === selectedGenre;
+        const matchesGenre = selectedGenre === 'ALL' ||
+          (selectedGenre === 'LENT' ? isLent(book) : book.genre === selectedGenre);
 
         return matchesSearch && matchesGenre;
       })
@@ -63,6 +66,13 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
       setBooks(updated);
       if (selectedBook?.id === bookId) setSelectedBook(null);
     }
+  };
+
+  const lentCount = books.filter(isLent).length;
+
+  const handleLoanChange = (updatedBook) => {
+    setBooks(updateBookInLibrary(updatedBook));
+    setSelectedBook(updatedBook);
   };
 
   const handleSaveEdit = () => {
@@ -157,6 +167,19 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
             >
               Všechny ({books.length})
             </button>
+            {lentCount > 0 && (
+              <button
+                onClick={() => setSelectedGenre('LENT')}
+                className={`text-xs px-3 py-1 rounded-full whitespace-nowrap transition cursor-pointer touch-manipulation min-h-[30px] flex items-center gap-1 ${
+                  selectedGenre === 'LENT'
+                    ? 'bg-amber-600 text-black font-medium'
+                    : 'bg-black text-amber-400 hover:text-amber-300 border border-amber-900/70'
+                }`}
+              >
+                <HandHelping size={12} />
+                Půjčené ({lentCount})
+              </button>
+            )}
             {genres.map(genre => (
               <button
                 key={genre}
@@ -242,6 +265,12 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                     <p className="text-xs text-zinc-400 truncate">
                       {book.author}
                     </p>
+                    {isLent(book) && (
+                      <p className={`text-[11px] font-medium truncate flex items-center gap-1 ${isOverdue(book) ? 'text-red-400' : 'text-amber-400'}`}>
+                        <HandHelping size={12} className="shrink-0" />
+                        {isOverdue(book) ? 'Po termínu' : 'Půjčeno'}: {book.loan.to}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -414,6 +443,8 @@ export function LibraryTab({ books, setBooks, onSwitchToScan }) {
                       {selectedBook.description || 'Žádný popis není k dispozici.'}
                     </p>
                   </div>
+
+                  <LoanPanel key={selectedBook.id} book={selectedBook} books={books} onChange={handleLoanChange} />
 
                   <div className="flex gap-2.5 pt-1">
                     <button

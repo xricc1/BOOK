@@ -152,10 +152,10 @@ const GOOGLE_BOOKS_API_KEY = import.meta.env?.VITE_GOOGLE_BOOKS_API_KEY || '';
 
 const newBookId = () => `book-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-async function fetchJson(url, { retries = 0 } = {}) {
+async function fetchJson(url, { retries = 0, timeout = REQUEST_TIMEOUT_MS } = {}) {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await fetchJsonOnce(url);
+      return await fetchJsonOnce(url, timeout);
     } catch (err) {
       // Retry server hiccups (5xx) and network errors, not "not found" style answers
       const retriable = !err.status || err.status >= 500;
@@ -165,9 +165,9 @@ async function fetchJson(url, { retries = 0 } = {}) {
   }
 }
 
-async function fetchJsonOnce(url) {
+async function fetchJsonOnce(url, timeout = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
     const response = await fetch(url, {
       headers: { Accept: 'application/json' },
@@ -269,7 +269,7 @@ export function knihovnyRecordToBook(rec, isbn) {
     publisher: cleanPublisher((rec.publishers || [])[0]) || 'Neuvedeno',
     description: summary || 'Kniha z katalogu Knihovny.cz.',
     // Knihovny.cz API has no covers; CoverImage also tries obalkyknih.cz by ISBN
-    coverUrl: openLibraryCoverUrl(isbn),
+    coverUrl: isbn ? openLibraryCoverUrl(isbn) : null,
     catalogSource: 'Knihovny.cz',
     addedAt: new Date().toISOString(),
   };
@@ -284,6 +284,40 @@ async function searchKnihovnyCz(isbn) {
   const records = data?.records || [];
   const record = records.length ? pickKnihovnyRecord(records, isbn) : null;
   return record ? knihovnyRecordToBook(record, isbn) : null;
+}
+
+/**
+ * Search Knihovny.cz by free text (title, author...), e.g. text read from a book spine.
+ * Each query is tried in turn until one returns books that really match its words.
+ * Returns up to `limit` books (different editions included), newest first.
+ */
+export async function searchBooksByText(queries, { limit = 12, onStep } = {}) {
+  for (const [i, q] of queries.entries()) {
+    onStep?.(i, q);
+    const params = new URLSearchParams({ lookfor: q.text, type: 'AllFields', limit: '30' });
+    KNIHOVNY_FIELDS.forEach(f => params.append('field[]', f));
+    let data;
+    try {
+      // Fuzzy (~) searches are slow on the catalog side
+      data = await fetchJson(`https://www.knihovny.cz/api/v1/search?${params}`, { retries: 1, timeout: 20000 });
+    } catch {
+      if (i === queries.length - 1) {
+        throw new CatalogError('Katalog Knihovny.cz teď neodpovídá. Zkus to prosím za chvíli.', 'SERVICE_UNAVAILABLE');
+      }
+      continue;
+    }
+    const records = (data?.records || [])
+      .filter(r => (r.formats || []).some(f => String(f).includes('BOOKS')))
+      .filter(r => q.matches(`${r.title} ${nameList(r.authors?.primary).join(' ')}`));
+    if (records.length) {
+      return records.slice(0, limit).map(r => {
+        const isbn = [...(r.isbns || []), r.cleanIsbn].map(x => cleanIsbn(x)).find(x => isValidIsbn(x));
+        const book = knihovnyRecordToBook(r, isbn ? normalizeIsbn(isbn) : '');
+        return { ...book, catalogSource: 'Knihovny.cz (podle fotky)' };
+      });
+    }
+  }
+  return [];
 }
 
 // 2. Google Books (secondary)

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Camera, Library, BookMarked } from 'lucide-react';
+import { Camera, Library, BookMarked, ChartColumn } from 'lucide-react';
 
 export function Navbar({ activeTab, setActiveTab, bookCount }) {
   return (
@@ -35,7 +35,7 @@ export function Navbar({ activeTab, setActiveTab, bookCount }) {
             aria-label="Skenovat knihy"
           >
             <Camera size={16} />
-            <span className="inline-block">Skenovat</span>
+            <span className={activeTab === 'scan' ? 'inline-block' : 'hidden sm:inline-block'}>Skenovat</span>
           </button>
 
           <button
@@ -48,12 +48,25 @@ export function Navbar({ activeTab, setActiveTab, bookCount }) {
             aria-label="Moje knihovna"
           >
             <Library size={16} />
-            <span className="inline-block">Knihovna</span>
+            <span className={activeTab === 'library' ? 'inline-block' : 'hidden sm:inline-block'}>Knihovna</span>
             <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-mono leading-none ${
               activeTab === 'library' ? 'bg-wine-900 text-white' : 'bg-zinc-800 text-zinc-400'
             }`}>
               {bookCount}
             </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('stats')}
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg text-xs font-semibold transition cursor-pointer min-h-[38px] touch-manipulation ${
+              activeTab === 'stats'
+                ? 'bg-wine-700 text-white shadow-md shadow-wine-900/50'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+            }`}
+            aria-label="Statistiky"
+          >
+            <ChartColumn size={16} />
+            <span className={activeTab === 'stats' ? 'inline-block' : 'hidden sm:inline-block'}>Statistiky</span>
           </button>
         </nav>
       </div>
