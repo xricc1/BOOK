@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { Navbar } from './components/Navbar';
 import { ScannerTab } from './components/ScannerTab';
 import { LibraryTab } from './components/LibraryTab';
+import { StatsTab } from './components/StatsTab';
 import { getSavedBooks, saveBookToLibrary } from './services/isbnService';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('scan'); // 'scan' or 'library'
+  const [activeTab, setActiveTab] = useState('scan'); // 'scan', 'library' or 'stats'
   const [books, setBooks] = useState(() => getSavedBooks());
 
   const handleBookSaved = (newBook) => {
@@ -37,6 +38,20 @@ export default function App() {
               <ScannerTab
                 onBookSaved={handleBookSaved}
                 onSwitchToLibrary={() => setActiveTab('library')}
+              />
+            </motion.div>
+          ) : activeTab === 'stats' ? (
+            <motion.div
+              key="stats-tab"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+            >
+              <StatsTab
+                books={books}
+                onSwitchToScan={() => setActiveTab('scan')}
+                onOpenLibrary={() => setActiveTab('library')}
               />
             </motion.div>
           ) : (

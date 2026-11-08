@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Camera, Search, Sparkles, Check, Edit2, AlertCircle, RefreshCw, BookPlus, ScanBarcode,
+  Camera, Search, Sparkles, Check, Edit2, AlertCircle, RefreshCw, BookPlus, ScanBarcode, ScanText,
   BookOpen, BookmarkCheck, Upload, Zap, ZapOff, ZoomIn, Info, ExternalLink
 } from 'lucide-react';
 import {
@@ -9,6 +9,7 @@ import {
 } from '../services/isbnService';
 import { CoverImage } from './CoverImage';
 import { BatchScanner } from './BatchScanner';
+import { PhotoRecognize } from './PhotoRecognize';
 import {
   openCamera, stopStream, startScanLoop, decodeImageFile, GUIDE
 } from '../services/barcodeScanner';
@@ -36,6 +37,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
   const [currentZoom, setCurrentZoom] = useState(1);
   const [scanTip, setScanTip] = useState('');
   const [batchMode, setBatchMode] = useState(false);
+  const [photoMode, setPhotoMode] = useState(false);
 
   const videoRef = useRef(null);
   const viewportRef = useRef(null);
@@ -318,6 +320,18 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
     }, 3000);
   };
 
+  // A book picked from the photo recognition results goes to the normal result card
+  const handlePhotoPick = (book) => {
+    setPhotoMode(false);
+    setError(null);
+    setNotFoundIsbn(null);
+    setSaveSuccess(false);
+    setIsEditing(false);
+    setScannedBook(book);
+    setEditForm(book);
+    setExistingDuplicate(book.isbn ? findSavedBookByIsbn(book.isbn) : null);
+  };
+
   const handleSampleClick = (isbn) => {
     setIsbnInput(isbn);
     handleSearch(isbn, { isSample: true });
@@ -354,10 +368,13 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
       </div>
 
       {/* Main Scanner Card */}
-      <div className="bg-black-card border border-black-border rounded-2xl p-4 sm:p-8 space-y-5 shadow-2xl relative overflow-hidden">
+      <div className="bg-black-card border border-black-border rounded-2xl p-4 sm:p-8 space-y-5 shadow-2xl relative overflow-clip">
         {/* Glow effect */}
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-wine-700/10 rounded-full blur-3xl pointer-events-none" />
 
+        {photoMode ? (
+          <PhotoRecognize onPick={handlePhotoPick} onClose={() => setPhotoMode(false)} />
+        ) : (<>
         {/* Camera active area */}
         {isCameraActive ? (
           <motion.div
@@ -484,12 +501,29 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
                 setExistingDuplicate(null);
                 setBatchMode(true);
               }}
-              className="sm:col-span-2 flex items-center justify-center gap-3 bg-black hover:bg-zinc-900 text-zinc-200 hover:text-white border border-wine-800/70 hover:border-wine-600 font-medium py-3 px-5 rounded-xl transition duration-200 cursor-pointer touch-manipulation min-h-[48px]"
+              className="flex items-center justify-center gap-3 bg-black hover:bg-zinc-900 text-zinc-200 hover:text-white border border-wine-800/70 hover:border-wine-600 font-medium py-3 px-5 rounded-xl transition duration-200 cursor-pointer touch-manipulation min-h-[48px]"
             >
               <ScanBarcode size={20} className="text-wine-400" />
               <span className="text-left">
                 <span className="block">Rychlé skenování víc knih</span>
                 <span className="block text-[11px] text-zinc-500 font-normal">Projížděj kódy za sebou, ukládá se samo</span>
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                setError(null);
+                setNotFoundIsbn(null);
+                setScannedBook(null);
+                setExistingDuplicate(null);
+                setPhotoMode(true);
+              }}
+              className="flex items-center justify-center gap-3 bg-black hover:bg-zinc-900 text-zinc-200 hover:text-white border border-wine-800/70 hover:border-wine-600 font-medium py-3 px-5 rounded-xl transition duration-200 cursor-pointer touch-manipulation min-h-[48px]"
+            >
+              <ScanText size={20} className="text-wine-400" />
+              <span className="text-left">
+                <span className="block">Rozpoznat z fotky</span>
+                <span className="block text-[11px] text-zinc-500 font-normal">Kniha bez kódu? Vyfoť hřbet nebo obálku</span>
               </span>
             </button>
           </div>
@@ -570,6 +604,7 @@ export function ScannerTab({ onBookSaved, onSwitchToLibrary }) {
             ))}
           </div>
         </div>
+        </>)}
       </div>
 
       {/* Loading indicator */}
