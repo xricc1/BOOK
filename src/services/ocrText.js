@@ -55,6 +55,63 @@ export function readableQuery(text, maxWords = 8) {
     .join(' ');
 }
 
+/**
+ * Build the search text from OCR words of a cover: keep only words Tesseract is sure about,
+ * then the biggest ones (title, author), in reading order.
+ * words: [{ text, confidence, height, x, y, inDictionary }] with sizes relative to the photo.
+ */
+export function buildCoverQuery(words, maxWords = 6) {
+  const byText = new Map();
+  for (const w of words) {
+    const sure = w.confidence >= 62 || (w.inDictionary && w.confidence >= 45);
+    if (!sure) continue;
+    for (const token of cleanWords(w.text)) {
+      if (token.length < 3) continue;
+      // "mudrců" and "mudrcu" are the same word read twice: keep the one with diacritics
+      const key = token.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const prev = byText.get(key);
+      if (!prev) byText.set(key, { token, height: w.height, conf: w.confidence, y: w.y, x: w.x, hits: 1 });
+      else {
+        prev.hits++;
+        if (token.normalize('NFD').length > prev.token.normalize('NFD').length) prev.token = token;
+        if (w.height > prev.height) prev.height = w.height;
+        if (w.confidence > prev.conf) prev.conf = w.confidence;
+      }
+    }
+  }
+  // "Approac" next to "Approach" is the same word cut short by another pass
+  const all = [...byText.entries()];
+  const list = all
+    .filter(([key]) => !all.some(([other]) => other !== key && other.length > key.length && key.length >= 4 && other.startsWith(key)))
+    .map(([, w]) => w);
+  if (!list.length) return '';
+  // Read by several passes = more trustworthy; huge letters = title
+  const maxHeight = Math.max(...list.map(w => w.height));
+  const picked = list
+    .filter(w => w.height >= maxHeight * 0.3 || (w.hits >= 2 && w.height >= maxHeight * 0.18))
+    .sort((a, b) => b.height * (1 + 0.15 * b.hits) - a.height * (1 + 0.15 * a.hits))
+    .slice(0, maxWords)
+    .sort((a, b) => (Math.abs(a.y - b.y) < 0.02 ? a.x - b.x : a.y - b.y));
+  return picked.map(w => titleCase(w.token)).join(' ');
+}
+
+/** An ISBN printed on the photo (back cover, title page), if there is a valid one. */
+export function findIsbnInText(text) {
+  const candidates = String(text || '').match(/(?:97[89][\s-]?)?(?:\d[\s-]?){9}[\dXx]/g) || [];
+  for (const c of candidates) {
+    const digits = c.replace(/[^0-9Xx]/g, '').toUpperCase();
+    if (digits.length === 13 && /^97[89]/.test(digits)) {
+      const sum = [...digits.slice(0, 12)].reduce((s, d, i) => s + Number(d) * (i % 2 ? 3 : 1), 0);
+      if ((10 - (sum % 10)) % 10 === Number(digits[12])) return digits;
+    }
+    if (digits.length === 10) {
+      const sum = [...digits].reduce((s, d, i) => s + (d === 'X' ? 10 : Number(d)) * (10 - i), 0);
+      if (sum % 11 === 0) return digits;
+    }
+  }
+  return null;
+}
+
 const fold = (w) => String(w).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 function editDistance(a, b) {
